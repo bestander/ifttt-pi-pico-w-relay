@@ -65,15 +65,41 @@ class RelayController:
     def __init__(self, pin_number):
         self.relay = Pin(pin_number, Pin.OUT)
         self.turn_off_time = None
+        self.last_activation_time = None
         self.is_on = False
+    
+    def can_activate(self):
+        """Check if the relay can be activated based on cooldown period"""
+        if self.last_activation_time is None:
+            return True
+        
+        time_since_last_activation = time.time() - self.last_activation_time
+        if time_since_last_activation < PIN_CONFIG['cooldown_period']:
+            remaining = PIN_CONFIG['cooldown_period'] - time_since_last_activation
+            print(f"Relay in cooldown period. {int(remaining)} seconds remaining.")
+            return False
+        return True
     
     def turn_on(self):
         """Turn on the relay and start the timeout timer"""
+        if self.is_on:
+            # If already on, just update the timer
+            self.turn_off_time = time.time() + PIN_CONFIG['on_duration']
+            print(f"Relay already ON, extending timer by {PIN_CONFIG['on_duration']} seconds")
+            return
+        
+        # Check cooldown period
+        if not self.can_activate():
+            return
+        
+        # Activate relay
         output_state = True if PIN_CONFIG['active_high'] else False
         self.relay.value(output_state)
-        self.turn_off_time = time.time() + PIN_CONFIG['on_duration']
+        current_time = time.time()
+        self.turn_off_time = current_time + PIN_CONFIG['on_duration']
+        self.last_activation_time = current_time
         self.is_on = True
-        print(f"Relay ON (will turn off in {PIN_CONFIG['on_duration']} seconds)")
+        print(f"Relay ON (will turn off in {PIN_CONFIG['on_duration']} seconds unless renewed)")
     
     def turn_off(self):
         """Turn off the relay and clear the timeout"""
@@ -86,6 +112,7 @@ class RelayController:
     def check_timeout(self):
         """Check if it's time to turn off the relay"""
         if self.is_on and self.turn_off_time and time.time() >= self.turn_off_time:
+            print("Relay timeout reached")
             self.turn_off()
             return True
         return False
@@ -110,14 +137,11 @@ def main():
         try:
             current_time = time.time()
             
-            # Check if relay needs to be turned off
+            # Check for timeout regardless of polling
             if relay.is_on:
                 relay.check_timeout()
-                # When relay is on, just wait for timeout
-                time.sleep(PIN_CONFIG['check_interval'])
-                continue
             
-            # Only poll the URL if the relay is off and it's time to check
+            # Poll the URL when it's time to check
             if current_time - last_check_time >= API_CONFIG['poll_interval']:
                 # Free up memory before making request
                 gc.collect()
@@ -128,15 +152,16 @@ def main():
                 print(f"State: {state}")
                 
                 # Control relay based on response
-                if state == "on" and not relay.is_on:
-                    relay.turn_on()
-                elif state == "off" and relay.is_on:
+                if state == "on":
+                    relay.turn_on()  # This will handle cooldown period internally
+                elif state == "off":
                     relay.turn_off()
                 
                 # Clean up
                 response.close()
                 last_check_time = current_time
             
+            # Short sleep to prevent busy waiting
             time.sleep(PIN_CONFIG['check_interval'])
             
         except OSError as e:

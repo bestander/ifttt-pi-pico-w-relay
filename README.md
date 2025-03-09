@@ -1,6 +1,6 @@
 # Pico Internet Poll Relay
 
-A MicroPython project for Raspberry Pi Pico W that polls an internet endpoint and controls a relay based on the response, with automatic timeout functionality.
+A MicroPython project for Raspberry Pi Pico W that polls an internet endpoint and controls a relay based on the response, with automatic timeout and cooldown functionality.
 
 ## Hardware Requirements
 
@@ -38,7 +38,8 @@ A MicroPython project for Raspberry Pi Pico W that polls an internet endpoint an
        'relay': 16,  # GPIO pin number for relay
        'active_high': True,  # Set to True if relay activates on HIGH
        'on_duration': 300,  # Duration in seconds to keep relay ON
-       'check_interval': 1  # How often to check timeout (seconds)
+       'check_interval': 1,  # How often to check timeout (seconds)
+       'cooldown_period': 900  # Minimum time between activations (15 minutes)
    }
    ```
 
@@ -57,15 +58,19 @@ The program:
    - Tries each network up to the configured maximum attempts
    - Cycles through all networks until a connection is established
    - Automatically reconnects if connection is lost
-2. Polls the specified endpoint every 5 seconds when relay is OFF
-3. Controls the relay based on the response:
-   - "on" activates the relay for the configured duration (default 5 minutes)
-   - "off" deactivates the relay
-   - Relay automatically turns off after the configured duration
-4. When relay is ON:
-   - Stops polling the endpoint until relay turns off
-   - Checks every second if it's time to turn off
-   - Automatically turns off after the configured duration
+2. Continuously polls the specified endpoint every 5 seconds
+3. Controls the relay based on the response, timing, and cooldown:
+   - "on" activates the relay for 5 minutes (if not in cooldown)
+   - Each new "on" signal extends the active time by 5 minutes
+   - "off" deactivates the relay immediately
+   - Relay automatically turns off after 5 minutes if no new "on" signal
+4. Relay Control Logic:
+   - Enforces 15-minute cooldown between activations
+   - Ignores "on" signals during cooldown period
+   - Stays ON for 5 minutes after activation
+   - Timer extends with each new "on" signal
+   - Turns OFF immediately on "off" signal
+   - Turns OFF automatically after timeout
 
 ## Troubleshooting
 
@@ -74,4 +79,4 @@ If you experience issues:
 2. Ensure at least one configured network is within range
 3. Ensure the relay is properly connected to the configured GPIO pin
 4. Verify the `active_high` setting matches your relay module's requirements
-5. Check the serial output for error messages and connection attempts 
+5. Check the serial output for error messages, connection attempts, and cooldown status 
