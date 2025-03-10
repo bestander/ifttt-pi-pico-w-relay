@@ -1,20 +1,33 @@
 # Pico Internet Poll Relay
 
-A MicroPython project for Raspberry Pi Pico W that polls an internet endpoint and controls a relay based on the response, with automatic timeout and cooldown functionality. The system uses a Cloudflare Worker as an intermediary and can be triggered via Gmail.
+A MicroPython project for Raspberry Pi Pico W that polls an internet endpoint and controls a relay based on the response, with automatic timeout and cooldown functionality. The system uses a Cloudflare Worker as an intermediary and can be triggered via Gmail or web interface.
 
 ## System Architecture
 
 ```
-Gmail -> Gmail Hook -> Cloudflare Worker -> Pico W -> Relay
+Gmail/Web UI -> Cloudflare Worker -> Pico W -> Relay
 ```
 
 ### Cloudflare Worker
-- Acts as a secure intermediary between Gmail triggers and the Pico W
+- Acts as a secure intermediary between triggers and the Pico W
 - Maintains the relay state
+- Provides a web interface for manual control and monitoring
+- Enforces time-based restrictions (11 PM - 7 AM EST only)
 - Endpoints:
+  - `/` - Web interface for control and monitoring
   - `/poll` - Returns current relay state ("on" or "off")
-  - `/trigger` - Receives commands from Gmail hook to change relay state
-- No authentication required for polling, making it suitable for microcontrollers
+  - `/trigger` - Receives commands to change relay state
+  - `/status` - Returns current state and system status
+  - `/history` - Returns trigger history
+
+### Web Interface Features
+- Real-time relay state monitoring
+- Last poll time display
+- Manual trigger button (active only during allowed hours)
+- Trigger history with timestamps and sources
+- Auto-updates every 5 seconds
+- Mobile-friendly responsive design
+- Clear indication of time restrictions
 
 ### Gmail Hook Integration
 - Monitor specific Gmail labels or emails
@@ -66,27 +79,12 @@ Gmail -> Gmail Hook -> Cloudflare Worker -> Pico W -> Relay
    }
    ```
 
-3. Adjust WiFi connection behavior (optional):
-   ```python
-   API_CONFIG = {
-       'wifi_max_attempts': 10,  # attempts per network before moving to next
-       'wifi_attempt_delay': 1   # seconds between attempts
-   }
-   ```
+## Operation Rules
 
-## How it Works
-
-### Pico W Operation
-1. Attempts to connect to configured WiFi networks in sequence:
-   - Tries each network up to the configured maximum attempts
-   - Cycles through all networks until a connection is established
-   - Automatically reconnects if connection is lost
-2. Continuously polls the Cloudflare Worker endpoint every 5 seconds
-3. Controls the relay based on the response, timing, and cooldown:
-   - "on" activates the relay for 5 minutes (if not in cooldown)
-   - Each new "on" signal extends the active time by 5 minutes
-   - "off" deactivates the relay immediately
-   - Relay automatically turns off after 5 minutes if no new "on" signal
+### Time Restrictions
+- The relay can only be activated between 11 PM and 7 AM EST
+- Attempts to trigger outside these hours will be rejected
+- Time restrictions apply to both web interface and Gmail triggers
 
 ### Relay Control Logic
 - Enforces 15-minute cooldown between activations
@@ -96,13 +94,17 @@ Gmail -> Gmail Hook -> Cloudflare Worker -> Pico W -> Relay
 - Turns OFF immediately on "off" signal
 - Turns OFF automatically after timeout
 
-### Email to Action Flow
-1. User sends or receives specific email
-2. Gmail hook detects the email based on configured rules
-3. Hook triggers Cloudflare Worker endpoint
-4. Worker updates state
-5. Pico W detects state change on next poll
-6. Relay activates/deactivates accordingly
+### System Flow
+1. User triggers relay via web interface or Gmail
+2. System checks if within allowed hours (11 PM - 7 AM EST)
+3. If allowed and not in cooldown:
+   - Relay activates for 5 minutes
+   - Event is logged in history
+   - Web interface updates in real-time
+4. Automatic deactivation after:
+   - 5-minute timeout expires
+   - "off" command received
+   - Time window ends
 
 ## Troubleshooting
 
@@ -111,6 +113,7 @@ If you experience issues:
 2. Ensure at least one configured network is within range
 3. Ensure the relay is properly connected to the configured GPIO pin
 4. Verify the `active_high` setting matches your relay module's requirements
-5. Check the serial output for error messages, connection attempts, and cooldown status
-6. Verify Gmail hook is properly configured and triggering
-7. Check Cloudflare Worker logs for any API issues 
+5. Check the serial output for error messages and connection attempts
+6. Verify current time is within allowed hours (11 PM - 7 AM EST)
+7. Check web interface history for trigger attempts and results
+8. Ensure cooldown period has elapsed since last activation 
