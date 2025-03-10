@@ -16,14 +16,15 @@ Gmail/Web UI -> Cloudflare Worker -> Pico W -> Relay
 - Endpoints:
   - `/` - Web interface for control and monitoring
   - `/poll` - Returns current relay state ("on" or "off")
-  - `/trigger` - Receives commands to change relay state
+  - `/trigger_on` - Activates the relay
+  - `/trigger_off` - Deactivates the relay
   - `/status` - Returns current state and system status
   - `/history` - Returns trigger history
 
 ### Web Interface Features
 - Real-time relay state monitoring
 - Last poll time display
-- Manual trigger button (active only during allowed hours)
+- Separate ON and OFF buttons (active only during allowed hours)
 - Trigger history with timestamps and sources
 - Auto-updates every 5 seconds
 - Mobile-friendly responsive design
@@ -32,11 +33,11 @@ Gmail/Web UI -> Cloudflare Worker -> Pico W -> Relay
 ### Gmail Hook Integration
 - Monitor specific Gmail labels or emails
 - When a matching email arrives:
-  - Sends a request to the Cloudflare Worker's `/trigger` endpoint
+  - Sends a request to the appropriate Cloudflare Worker endpoint
   - Can be configured to trigger on specific email subjects or content
 - Example triggers:
-  - Email with subject "Turn On Relay" -> Sets state to "on"
-  - Email with subject "Turn Off Relay" -> Sets state to "off"
+  - Email with subject "Turn On Relay" -> Calls `/trigger_on`
+  - Email with subject "Turn Off Relay" -> Calls `/trigger_off`
 
 ## Hardware Requirements
 

@@ -60,8 +60,11 @@ const HTML_TEMPLATE = `
             Current State: <strong id="currentState">Loading...</strong><br>
             Last Poll: <span id="lastPoll">Loading...</span>
         </div>
-        <button id="triggerButton" class="button" onclick="triggerRelay()">
-            Trigger Relay
+        <button id="triggerOnButton" class="button" onclick="triggerRelay('on')" style="margin-right: 10px;">
+            Turn On
+        </button>
+        <button id="triggerOffButton" class="button" onclick="triggerRelay('off')">
+            Turn Off
         </button>
         <div id="error" class="error"></div>
     </div>
@@ -80,7 +83,8 @@ const HTML_TEMPLATE = `
                 .then(data => {
                     document.getElementById('currentState').textContent = data.state;
                     document.getElementById('lastPoll').textContent = new Date(data.lastPoll).toLocaleString();
-                    document.getElementById('triggerButton').disabled = !data.canTrigger;
+                    document.getElementById('triggerOnButton').disabled = !data.canTrigger;
+                    document.getElementById('triggerOffButton').disabled = !data.canTrigger;
                     if (!data.canTrigger) {
                         document.getElementById('error').textContent = data.message || '';
                     } else {
@@ -101,8 +105,8 @@ const HTML_TEMPLATE = `
                 });
         }
 
-        function triggerRelay() {
-            fetch('/trigger', { method: 'POST' })
+        function triggerRelay(action) {
+            fetch('/trigger_' + action, { method: 'POST' })
                 .then(response => response.json())
                 .then(data => {
                     if (data.error) {
@@ -186,7 +190,7 @@ async function handleRequest(request) {
     }
     
     // Handle trigger request
-    if (url.pathname === '/trigger') {
+    if (url.pathname === '/trigger_on' || url.pathname === '/trigger_off') {
         if (!isWithinAllowedHours()) {
             return new Response(JSON.stringify({
                 error: 'Relay can only be triggered between 11 PM and 7 AM EST'
@@ -196,9 +200,7 @@ async function handleRequest(request) {
             });
         }
         
-        const currentState = await RELAY_STATE.get('state') || 'off';
-        const newState = currentState === 'on' ? 'off' : 'on';
-        
+        const newState = url.pathname === '/trigger_on' ? 'on' : 'off';
         await RELAY_STATE.put('state', newState);
         await addToHistory(newState, request.headers.get('User-Agent')?.includes('Mozilla') ? 'Web Interface' : 'Gmail');
         
