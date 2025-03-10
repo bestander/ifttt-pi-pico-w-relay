@@ -16,7 +16,7 @@ function checkEmailAndTriggerWebhook() {
     // Check if this email was already processed
     if (messageId !== lastProcessedId) {
       var subject = message.getSubject();
-      var webhookUrl = "https://<cloudflare-worker-url>/trigger";
+      var webhookUrl = "https://<cloudflare-worker-url>/trigger_on";
 
       // Send the webhook
       UrlFetchApp.fetch(webhookUrl, {

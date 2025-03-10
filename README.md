@@ -1,6 +1,6 @@
 # Pico Internet Poll Relay
 
-A MicroPython project for Raspberry Pi Pico W that polls an internet endpoint and controls a relay based on the response, with automatic timeout and cooldown functionality. The system uses a Cloudflare Worker as an intermediary and can be triggered via Gmail or web interface.
+A MicroPython project for Raspberry Pi Pico W that polls an internet endpoint and controls a relay based on the response, with automatic timeout and cooldown functionality. The system uses a Cloudflare Worker as an intermediary and can be triggered via Gmail or web interface, with automatic 1-minute timeout and time-based restrictions.
 
 ## System Architecture
 
@@ -10,9 +10,10 @@ Gmail/Web UI -> Cloudflare Worker -> Pico W -> Relay
 
 ### Cloudflare Worker
 - Acts as a secure intermediary between triggers and the Pico W
-- Maintains the relay state
+- Maintains the relay state and handles automatic timeout
 - Provides a web interface for manual control and monitoring
 - Enforces time-based restrictions (11 PM - 7 AM EST only)
+- Automatically turns off relay after 1 minute
 - Endpoints:
   - `/` - Web interface for control and monitoring
   - `/poll` - Returns current relay state ("on" or "off")
@@ -25,6 +26,7 @@ Gmail/Web UI -> Cloudflare Worker -> Pico W -> Relay
 - Real-time relay state monitoring
 - Last poll time display
 - Separate ON and OFF buttons (active only during allowed hours)
+- Countdown display showing time until auto-off
 - Trigger history with timestamps and sources
 - Auto-updates every 5 seconds
 - Mobile-friendly responsive design
@@ -75,7 +77,7 @@ Gmail/Web UI -> Cloudflare Worker -> Pico W -> Relay
        'relay': 16,  # GPIO pin number for relay
        'active_high': True,  # Set to True if relay activates on HIGH
        'on_duration': 300,  # Duration in seconds to keep relay ON
-       'check_interval': 1,  # How often to check timeout (seconds)
+       'check_interval': 1,  # How often to check state (seconds)
        'cooldown_period': 900  # Minimum time between activations (15 minutes)
    }
    ```
@@ -87,23 +89,23 @@ Gmail/Web UI -> Cloudflare Worker -> Pico W -> Relay
 - Attempts to trigger outside these hours will be rejected
 - Time restrictions apply to both web interface and Gmail triggers
 
-### Relay Control Logic
-- Enforces 15-minute cooldown between activations
-- Ignores "on" signals during cooldown period
-- Stays ON for 5 minutes after activation
-- Timer extends with each new "on" signal
-- Turns OFF immediately on "off" signal
-- Turns OFF automatically after timeout
+### Automatic Control
+- Relay turns OFF automatically after 1 minute of being ON
+- Timer starts when relay is turned ON
+- Timer resets if relay is turned ON while already ON
+- Turning relay OFF manually cancels the auto-off timer
+- Auto-off events are logged in history as "Auto Off"
 
 ### System Flow
 1. User triggers relay via web interface or Gmail
 2. System checks if within allowed hours (11 PM - 7 AM EST)
-3. If allowed and not in cooldown:
-   - Relay activates for 5 minutes
+3. If allowed:
+   - Relay activates
+   - 1-minute auto-off timer starts
    - Event is logged in history
-   - Web interface updates in real-time
+   - Web interface shows countdown
 4. Automatic deactivation after:
-   - 5-minute timeout expires
+   - 1-minute timeout expires
    - "off" command received
    - Time window ends
 
@@ -117,4 +119,5 @@ If you experience issues:
 5. Check the serial output for error messages and connection attempts
 6. Verify current time is within allowed hours (11 PM - 7 AM EST)
 7. Check web interface history for trigger attempts and results
-8. Ensure cooldown period has elapsed since last activation 
+8. Monitor auto-off countdown in web interface
+9. Ensure cooldown period has elapsed since last activation 

@@ -2,6 +2,8 @@
 // - RELAY_STATE: for storing relay state
 // - RELAY_HISTORY: for storing trigger history
 
+const AUTO_OFF_DELAY = 60; // 1 minute in seconds
+
 const HTML_TEMPLATE = `
 <!DOCTYPE html>
 <html>
@@ -58,7 +60,8 @@ const HTML_TEMPLATE = `
         <h1>Relay Control</h1>
         <div class="status">
             Current State: <strong id="currentState">Loading...</strong><br>
-            Last Poll: <span id="lastPoll">Loading...</span>
+            Last Poll: <span id="lastPoll">Loading...</span><br>
+            <span id="autoOffStatus"></span>
         </div>
         <button id="triggerOnButton" class="button" onclick="triggerRelay('on')" style="margin-right: 10px;">
             Turn On
@@ -85,6 +88,20 @@ const HTML_TEMPLATE = `
                     document.getElementById('lastPoll').textContent = new Date(data.lastPoll).toLocaleString();
                     document.getElementById('triggerOnButton').disabled = !data.canTrigger;
                     document.getElementById('triggerOffButton').disabled = !data.canTrigger;
+                    
+                    // Update auto-off status
+                    const autoOffEl = document.getElementById('autoOffStatus');
+                    if (data.state === 'on' && data.autoOffAt) {
+                        const timeLeft = Math.max(0, Math.floor((new Date(data.autoOffAt) - new Date()) / 1000));
+                        if (timeLeft > 0) {
+                            autoOffEl.textContent = \`Auto-off in \${timeLeft} seconds\`;
+                        } else {
+                            autoOffEl.textContent = 'Turning off...';
+                        }
+                    } else {
+                        autoOffEl.textContent = '';
+                    }
+                    
                     if (!data.canTrigger) {
                         document.getElementById('error').textContent = data.message || '';
                     } else {
@@ -148,8 +165,28 @@ async function addToHistory(action, source) {
     await RELAY_HISTORY.put('history', JSON.stringify(history));
 }
 
+async function scheduleAutoOff() {
+    const turnOffTime = new Date(Date.now() + AUTO_OFF_DELAY * 1000).toISOString();
+    await RELAY_STATE.put('auto_off_time', turnOffTime);
+}
+
+async function checkAutoOff() {
+    const turnOffTime = await RELAY_STATE.get('auto_off_time');
+    if (turnOffTime && new Date(turnOffTime) <= new Date()) {
+        const currentState = await RELAY_STATE.get('state');
+        if (currentState === 'on') {
+            await RELAY_STATE.put('state', 'off');
+            await addToHistory('off', 'Auto Off');
+            await RELAY_STATE.delete('auto_off_time');
+        }
+    }
+}
+
 async function handleRequest(request) {
     const url = new URL(request.url);
+    
+    // Check for auto-off on every request
+    await checkAutoOff();
     
     // Serve web interface
     if (url.pathname === '/' || url.pathname === '') {
@@ -162,12 +199,14 @@ async function handleRequest(request) {
     if (url.pathname === '/status') {
         const state = await RELAY_STATE.get('state') || 'off';
         const lastPoll = await RELAY_STATE.get('lastPoll') || new Date().toISOString();
+        const turnOffTime = await RELAY_STATE.get('auto_off_time');
         const canTrigger = isWithinAllowedHours();
         
         return new Response(JSON.stringify({
             state,
             lastPoll,
             canTrigger,
+            autoOffAt: turnOffTime,
             message: canTrigger ? '' : 'Relay can only be triggered between 11 PM and 7 AM EST'
         }), {
             headers: { 'Content-Type': 'application/json' }
@@ -202,9 +241,20 @@ async function handleRequest(request) {
         
         const newState = url.pathname === '/trigger_on' ? 'on' : 'off';
         await RELAY_STATE.put('state', newState);
+        
+        // Schedule auto-off if turning on
+        if (newState === 'on') {
+            await scheduleAutoOff();
+        } else {
+            await RELAY_STATE.delete('auto_off_time');
+        }
+        
         await addToHistory(newState, request.headers.get('User-Agent')?.includes('Mozilla') ? 'Web Interface' : 'Gmail');
         
-        return new Response(JSON.stringify({ state: newState }), {
+        return new Response(JSON.stringify({ 
+            state: newState,
+            autoOffAt: newState === 'on' ? await RELAY_STATE.get('auto_off_time') : null
+        }), {
             headers: { 'Content-Type': 'application/json' }
         });
     }
