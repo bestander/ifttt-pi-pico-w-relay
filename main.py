@@ -1,7 +1,7 @@
 import network
 import urequests
 import time
-from machine import Pin, Timer
+from machine import Pin, Timer, reset
 import gc
 from config import WIFI_CONFIGS, API_CONFIG, PIN_CONFIG
 
@@ -132,10 +132,16 @@ def main():
     
     print("Starting main loop...")
     last_check_time = 0
+    start_time = time.time()  # Track when we started running
     
     while True:
         try:
             current_time = time.time()
+            
+            # Check if it's time to reboot (every hour)
+            if current_time - start_time >= 3600:  # 3600 seconds = 1 hour
+                print("Hourly reboot triggered")
+                reset()
             
             # Check for timeout regardless of polling
             if relay.is_on:
