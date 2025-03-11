@@ -2,7 +2,7 @@
 // - RELAY_STATE: for storing relay state
 // - RELAY_HISTORY: for storing trigger history
 
-const AUTO_OFF_DELAY = 60; // 1 minute in seconds
+const AUTO_OFF_DELAY = 120; // 2 minutes in seconds
 
 const HTML_TEMPLATE = `
 <!DOCTYPE html>
@@ -123,14 +123,20 @@ const HTML_TEMPLATE = `
         }
 
         function triggerRelay(action) {
-            fetch('/trigger_' + action, { method: 'POST' })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.error) {
-                        document.getElementById('error').textContent = data.error;
-                    }
-                    updateUI();
-                });
+            fetch('/trigger_' + action, { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ source: 'Web Interface' })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    document.getElementById('error').textContent = data.error;
+                }
+                updateUI();
+            });
         }
 
         // Update UI every 5 seconds
@@ -174,10 +180,16 @@ async function checkAutoOff() {
     const turnOffTime = await RELAY_STATE.get('auto_off_time');
     if (turnOffTime && new Date(turnOffTime) <= new Date()) {
         const currentState = await RELAY_STATE.get('state');
-        if (currentState === 'on') {
+        // Add check for auto-off flag to prevent double logging
+        const autoOffFlag = await RELAY_STATE.get('auto_off_flag');
+        if (currentState === 'on' && !autoOffFlag) {
+            // Set flag before making changes
+            await RELAY_STATE.put('auto_off_flag', 'true');
             await RELAY_STATE.put('state', 'off');
             await addToHistory('off', 'Auto Off');
             await RELAY_STATE.delete('auto_off_time');
+            // Clean up flag after changes are made
+            await RELAY_STATE.delete('auto_off_flag');
         }
     }
 }
@@ -185,8 +197,8 @@ async function checkAutoOff() {
 async function handleRequest(request) {
     const url = new URL(request.url);
     
-    // Check for auto-off on every request
-    await checkAutoOff();
+    // Remove global auto-off check
+    // await checkAutoOff();
     
     // Serve web interface
     if (url.pathname === '/' || url.pathname === '') {
@@ -197,6 +209,9 @@ async function handleRequest(request) {
     
     // Handle status request
     if (url.pathname === '/status') {
+        // Check auto-off only during status requests
+        await checkAutoOff();
+        
         const state = await RELAY_STATE.get('state') || 'off';
         const lastPoll = await RELAY_STATE.get('lastPoll') || new Date().toISOString();
         const turnOffTime = await RELAY_STATE.get('auto_off_time');
@@ -240,6 +255,18 @@ async function handleRequest(request) {
         }
         
         const newState = url.pathname === '/trigger_on' ? 'on' : 'off';
+        let source = 'External';  // default source
+        
+        // Try to get source from request body
+        try {
+            const body = await request.json();
+            if (body.source) {
+                source = body.source;
+            }
+        } catch (e) {
+            // If no body or invalid JSON, use default source
+        }
+        
         await RELAY_STATE.put('state', newState);
         
         // Schedule auto-off if turning on
@@ -249,7 +276,7 @@ async function handleRequest(request) {
             await RELAY_STATE.delete('auto_off_time');
         }
         
-        await addToHistory(newState, request.headers.get('User-Agent')?.includes('Mozilla') ? 'Web Interface' : 'Gmail');
+        await addToHistory(newState, source);
         
         return new Response(JSON.stringify({ 
             state: newState,
