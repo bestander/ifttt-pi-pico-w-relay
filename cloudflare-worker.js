@@ -3,6 +3,9 @@
 // - RELAY_HISTORY: for storing trigger history
 
 const AUTO_OFF_DELAY = 120; // 2 minutes in seconds
+const SPREADSHEET_ID = 'MY_SPREADSHEET_ID';
+const ALLOWED_START_HOUR = 23; // 11 PM EST
+const ALLOWED_END_HOUR = 7;    // 7 AM EST
 
 const HTML_TEMPLATE = `
 <!DOCTYPE html>
@@ -152,7 +155,7 @@ function isWithinAllowedHours() {
     const now = new Date();
     const est = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
     const hour = est.getHours();
-    return hour >= 23 || hour < 7;
+    return hour >= ALLOWED_START_HOUR || hour < ALLOWED_END_HOUR;
 }
 
 async function addToHistory(action, source) {
@@ -194,7 +197,56 @@ async function checkAutoOff() {
     }
 }
 
-async function handleRequest(request) {
+async function checkSpreadsheet(env) {
+    try {
+        const spreadsheetUrl = `https://docs.google.com/spreadsheets/d/${SPREADSHEET_ID}/export?format=csv`;
+        const response = await fetch(spreadsheetUrl);
+        if (!response.ok) {
+            console.error('Failed to fetch spreadsheet:', response.status);
+            return false;
+        }
+
+        const csv = await response.text();
+        const rows = csv.split('\n').filter(row => row.trim());
+        
+        if (rows.length === 0) return false;
+        
+        // Only check the first row
+        const firstRow = rows[0];
+        const timestamp = firstRow.split('\t')[0].trim(); // Get first column (A1) and trim whitespace
+        
+        if (!timestamp) return false;
+
+        console.log('Raw timestamp from spreadsheet:', timestamp);
+
+        // Parse the timestamp from the spreadsheet
+        const newTimestamp = new Date(timestamp);
+        console.log('Parsed timestamp:', newTimestamp.toISOString());
+
+        if (isNaN(newTimestamp.getTime())) {
+            console.error('Invalid timestamp format:', timestamp);
+            return false;
+        }
+
+        // Get the last triggered timestamp
+        const lastTriggerTime = await RELAY_STATE.get('last_trigger_time');
+        if (lastTriggerTime && lastTriggerTime === timestamp) {
+            console.log('Already triggered this timestamp:', timestamp);
+            return false;
+        }
+
+        // Store the raw timestamp string to compare exactly
+        await RELAY_STATE.put('last_trigger_time', timestamp);
+        console.log('New activity detected, triggering relay');
+        return true;
+
+    } catch (error) {
+        console.error('Error checking spreadsheet:', error);
+        return false;
+    }
+}
+
+async function handleRequest(request, env) {
     const url = new URL(request.url);
     
     // Remove global auto-off check
@@ -238,6 +290,20 @@ async function handleRequest(request) {
     
     // Handle poll request from Pico
     if (url.pathname === '/poll') {
+        // First check current state
+        const currentState = await RELAY_STATE.get('state') || 'off';
+        
+        // Only check spreadsheet if relay is off
+        if (currentState === 'off') {
+            const hasNewActivity = await checkSpreadsheet(env);
+            if (hasNewActivity && isWithinAllowedHours()) {
+                await RELAY_STATE.put('state', 'on');
+                await scheduleAutoOff();
+                await addToHistory('on', 'Spreadsheet Activity');
+            }
+        }
+
+        // Return current state
         const state = await RELAY_STATE.get('state') || 'off';
         await RELAY_STATE.put('lastPoll', new Date().toISOString());
         return new Response(state);
@@ -274,6 +340,9 @@ async function handleRequest(request) {
             await scheduleAutoOff();
         } else {
             await RELAY_STATE.delete('auto_off_time');
+            // When manually turning off, update the last processed timestamp to now
+            // This prevents the spreadsheet check from seeing the old timestamp as "new"
+            await RELAY_STATE.put('last_processed_timestamp', new Date().toISOString());
         }
         
         await addToHistory(newState, source);
@@ -290,5 +359,5 @@ async function handleRequest(request) {
 }
 
 addEventListener('fetch', event => {
-    event.respondWith(handleRequest(event.request));
+    event.respondWith(handleRequest(event.request, event.env));
 });
