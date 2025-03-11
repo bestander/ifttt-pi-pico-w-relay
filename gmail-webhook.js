@@ -1,5 +1,6 @@
 /**
  * gmail webhook to trigger a cloudflare worker.
+ * Create at http://script.google.com/
  * Since IFTTT webhook is not free, we can use this email to trigger a cloudflare worker.
  */
 // Use PropertiesService to store the last processed Message ID
