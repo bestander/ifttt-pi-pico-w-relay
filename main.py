@@ -83,13 +83,12 @@ class RelayController:
     def turn_on(self):
         """Turn on the relay and start the timeout timer"""
         if self.is_on:
-            # If already on, just update the timer
-            self.turn_off_time = time.time() + PIN_CONFIG['on_duration']
-            print(f"Relay already ON, extending timer by {PIN_CONFIG['on_duration']} seconds")
+            print(f"Relay already ON")
             return
         
         # Check cooldown period
         if not self.can_activate():
+            print(f"Relay can't be activated due to cooldown period")
             return
         
         # Activate relay
