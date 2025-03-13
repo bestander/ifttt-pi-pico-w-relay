@@ -181,20 +181,15 @@ async function scheduleAutoOff() {
 
 async function checkAutoOff() {
     const turnOffTime = await RELAY_STATE.get('auto_off_time');
-    if (turnOffTime && new Date(turnOffTime) <= new Date()) {
-        const currentState = await RELAY_STATE.get('state');
-        // Add check for auto-off flag to prevent double logging
-        const autoOffFlag = await RELAY_STATE.get('auto_off_flag');
-        if (currentState === 'on' && !autoOffFlag) {
-            // Set flag before making changes
-            await RELAY_STATE.put('auto_off_flag', 'true');
-            await RELAY_STATE.put('state', 'off');
-            await addToHistory('off', 'Auto Off');
-            await RELAY_STATE.delete('auto_off_time');
-            // Clean up flag after changes are made
-            await RELAY_STATE.delete('auto_off_flag');
-        }
+    const currentState = await RELAY_STATE.get('state');
+    
+    if (turnOffTime && currentState === 'on' && new Date(turnOffTime) <= new Date()) {
+        await RELAY_STATE.put('state', 'off');
+        await addToHistory('off', 'Auto Off');
+        await RELAY_STATE.delete('auto_off_time');
+        return true;
     }
+    return false;
 }
 
 async function checkSpreadsheet(env) {
@@ -249,9 +244,6 @@ async function checkSpreadsheet(env) {
 async function handleRequest(request, env) {
     const url = new URL(request.url);
     
-    // Remove global auto-off check
-    // await checkAutoOff();
-    
     // Serve web interface
     if (url.pathname === '/' || url.pathname === '') {
         return new Response(HTML_TEMPLATE, {
@@ -259,9 +251,8 @@ async function handleRequest(request, env) {
         });
     }
     
-    // Handle status request
+    // Add auto-off check to status endpoint since it's frequently polled
     if (url.pathname === '/status') {
-        // Check auto-off only during status requests
         await checkAutoOff();
         
         const state = await RELAY_STATE.get('state') || 'off';
@@ -288,8 +279,9 @@ async function handleRequest(request, env) {
         });
     }
     
-    // Handle poll request from Pico
+    // Also check auto-off on poll requests
     if (url.pathname === '/poll') {
+        await checkAutoOff();
         // First check current state
         const currentState = await RELAY_STATE.get('state') || 'off';
         
@@ -333,6 +325,8 @@ async function handleRequest(request, env) {
             // If no body or invalid JSON, use default source
         }
         
+        // First add to history, then update state
+        await addToHistory(newState, source);
         await RELAY_STATE.put('state', newState);
         
         // Schedule auto-off if turning on
@@ -340,12 +334,8 @@ async function handleRequest(request, env) {
             await scheduleAutoOff();
         } else {
             await RELAY_STATE.delete('auto_off_time');
-            // When manually turning off, update the last processed timestamp to now
-            // This prevents the spreadsheet check from seeing the old timestamp as "new"
             await RELAY_STATE.put('last_processed_timestamp', new Date().toISOString());
         }
-        
-        await addToHistory(newState, source);
         
         return new Response(JSON.stringify({ 
             state: newState,

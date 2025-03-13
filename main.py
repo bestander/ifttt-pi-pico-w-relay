@@ -140,6 +140,7 @@ def main():
             
             # Check if it's time to reboot (every hour)
             if current_time - start_time >= 3600:  # 3600 seconds = 1 hour
+                relay.check_timeout()
                 print("Hourly reboot triggered")
                 reset()
             
